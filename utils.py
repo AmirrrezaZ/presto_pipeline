@@ -9,6 +9,105 @@ import numpy as np
 import rasterio
 from rasterio.windows import Window
 from rasterio.warp import calculate_default_transform, reproject, Resampling
+from tqdm import tqdm
+
+def _get_band_descriptions(src) -> list[str]:
+    """
+    Return band descriptions for all bands in a rasterio dataset.
+
+    If the source TIFF has no band descriptions, we fall back to the
+    standard Presto naming scheme:
+
+        M01_coastal, M01_blue, ..., M12_vh, [optional FILL_MASK]
+
+    We do NOT drop any bands here. Dropping the last "FILL_MASK"
+    band is already handled inside dataset_loaders._read_tif.
+    """
+    # Read raw descriptions from the file (may be None / empty / contain None)
+    raw_descs = list(src.descriptions) if src.descriptions is not None else []
+    band_count = src.count
+
+    # -------------------------------
+    # 1) If no descriptions at all → build default names
+    # -------------------------------
+    if not raw_descs or all(d is None for d in raw_descs):
+        if band_count not in (168, 169):
+            raise RuntimeError(
+                f"Source TIFF has no band descriptions and band_count={band_count}, "
+                "expected 168 or 169 for Presto."
+            )
+
+        month_ids = [f"M{m:02d}" for m in range(1, 13)]
+        per_month_feats = [
+            "coastal",
+            "blue",
+            "green",
+            "red",
+            "red_edge1",
+            "red_edge2",
+            "red_edge3",
+            "nir",
+            "red_edge4",
+            "water_vapor",
+            "swir1",
+            "swir2",
+            "vv",
+            "vh",
+        ]
+
+        descs: list[str] = []
+        for m in month_ids:
+            for f in per_month_feats:
+                descs.append(f"{m}_{f}")
+
+        # If there is an extra band, assume it's the fill mask
+        if band_count == 169:
+            descs.append("FILL_MASK")
+
+        print("ℹ️ Source TIFF had no band descriptions; using default Presto names.")
+        return descs
+
+    # -------------------------------
+    # 2) There ARE some descriptions → clean / validate
+    # -------------------------------
+    if len(raw_descs) != band_count:
+        raise RuntimeError(
+            f"Band descriptions length ({len(raw_descs)}) "
+            f"!= band count ({band_count})."
+        )
+
+    cleaned: list[str] = []
+    for i, d in enumerate(raw_descs):
+        if d is None:
+            # Fallback in case a single band has no name
+            # Try to follow the same Mxx_xxx scheme if possible.
+            month = i // 14 + 1
+            idx_in_month = i % 14
+            per_month_feats = [
+                "coastal",
+                "blue",
+                "green",
+                "red",
+                "red_edge1",
+                "red_edge2",
+                "red_edge3",
+                "nir",
+                "red_edge4",
+                "water_vapor",
+                "swir1",
+                "swir2",
+                "vv",
+                "vh",
+            ]
+            if 1 <= month <= 12 and 0 <= idx_in_month < len(per_month_feats):
+                default_name = f"M{month:02d}_{per_month_feats[idx_in_month]}"
+            else:
+                default_name = f"B{i+1}"
+            cleaned.append(default_name)
+        else:
+            cleaned.append(str(d))
+
+    return cleaned
 
 
 
@@ -115,6 +214,7 @@ def tile_raster_with_mask(
     """
     Tile aligned image and mask into tile pairs.
     Automatically handles alignment if needed.
+    Preserves band descriptions from the source image.
     """
     img_tif = Path(img_tif)
     mask_tif = Path(mask_tif)
@@ -156,8 +256,8 @@ def tile_raster_with_mask(
         img_profile.update(tiled=False, blockxsize=None, blockysize=None)
         mask_profile.update(tiled=False, blockxsize=None, blockysize=None, count=1)
         
-        # Read band descriptions from source image
-        band_descriptions = [src_img.descriptions[i] for i in range(img_bands)]
+        # Read band descriptions from source image (validated)
+        band_descriptions = _get_band_descriptions(src_img)
         
         # Calculate number of tiles
         n_tiles_x = int(np.ceil(width / tile_size))
@@ -168,8 +268,7 @@ def tile_raster_with_mask(
         
         tile_idx = 0
         skipped = 0
-        
-        for ty in range(n_tiles_y):
+        for ty in tqdm(range(n_tiles_y), desc="🧩 Tiling rows", unit="row"):
             for tx in range(n_tiles_x):
                 # Calculate tile boundaries
                 col_off = tx * tile_size
@@ -192,7 +291,7 @@ def tile_raster_with_mask(
                 img_data = src_img.read(window=win)
                 mask_data = src_mask.read(1, window=win)
                 
-                # Skip tiles with no valid mask data
+                # Skip tiles with no valid mask data at all (all zeros)
                 if skip_empty_mask:
                     if not np.any(mask_data > 0):
                         skipped += 1
@@ -228,11 +327,11 @@ def tile_raster_with_mask(
                 # Write image tile with band descriptions
                 with rasterio.open(img_out_path, "w", **img_tile_profile) as dst_img:
                     dst_img.write(img_data)
-                    # Set band descriptions
                     for i, desc in enumerate(band_descriptions, start=1):
                         if desc:
                             dst_img.set_band_description(i, desc)
                 
+                # Write mask tile
                 with rasterio.open(mask_out_path, "w", **mask_tile_profile) as dst_mask:
                     dst_mask.write(mask_data, 1)
                 
@@ -242,6 +341,8 @@ def tile_raster_with_mask(
         print(f"✓ Created {len(tile_pairs)} valid tiles ({skipped} skipped)")
     
     return tile_pairs
+
+
 
 
 def merge_prediction_tiles(
@@ -310,14 +411,14 @@ def tile_image_only(
 ) -> List[Path]:
     """
     Tile image without mask (for no-mask inference).
-    Preserves band descriptions.
+    Preserves band descriptions from the source image.
     """
     out_dir_img.mkdir(parents=True, exist_ok=True)
     
     if prefix is None:
         prefix = img_tif.stem
     
-    tiles = []
+    tiles: List[Path] = []
     
     with rasterio.open(img_tif) as src:
         width = src.width
@@ -327,8 +428,8 @@ def tile_image_only(
         profile = src.profile.copy()
         profile.update(tiled=False, blockxsize=None, blockysize=None)
         
-        # Read band descriptions
-        band_descriptions = [src.descriptions[i] for i in range(img_bands)]
+        # Read band descriptions (validated)
+        band_descriptions = _get_band_descriptions(src)
         
         n_tiles_x = int(np.ceil(width / tile_size))
         n_tiles_y = int(np.ceil(height / tile_size))
@@ -353,7 +454,8 @@ def tile_image_only(
                 tile_profile.update(
                     width=w,
                     height=h,
-                    transform=tile_transform
+                    transform=tile_transform,
+                    count=img_bands,
                 )
                 
                 tile_name = f"{prefix}_tile_{tile_idx:04d}.tif"
@@ -361,7 +463,6 @@ def tile_image_only(
                 
                 with rasterio.open(tile_path, "w", **tile_profile) as dst:
                     dst.write(data)
-                    # Set band descriptions
                     for i, desc in enumerate(band_descriptions, start=1):
                         if desc:
                             dst.set_band_description(i, desc)
@@ -370,6 +471,8 @@ def tile_image_only(
                 tile_idx += 1
     
     return tiles
+
+
 def extract_idx(path: Path) -> int:
     """
     Extract index from filename patterns like:
