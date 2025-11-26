@@ -33,6 +33,6 @@ def esri_landuse(configs: dict):
         tif_dir=esri_mask_path,
         shp_path=asset_path,
         out_dir=f"./data/LULC/{year}",
-        iou_threshold=0.01,
+        iou_threshold=0.0001,
         id_field=None,
     )

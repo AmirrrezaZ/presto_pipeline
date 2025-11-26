@@ -47,26 +47,26 @@ class S2S1PrestoDownloader:
         # ------------------------------------------------------------------
         #  AUTH + INIT
         # ------------------------------------------------------------------
-        try:
-            _ = ee.Number(1).getInfo()   # Dry-run check
-        except Exception:
-            print("🔐 Authenticating Earth Engine...")
-            ee.Authenticate()
+        # try:
+        #     _ = ee.Number(1).getInfo()   # Dry-run check
+        # except Exception:
+        #     print("🔐 Authenticating Earth Engine...")
+        #     ee.Authenticate()
 
 
-        ee.Initialize(project=gee_project) if gee_project else ee.Initialize()
-        print("✅ Earth Engine initialized.\n")
+        # ee.Initialize(project=gee_project) if gee_project else ee.Initialize()
+        # print("✅ Earth Engine initialized.\n")
         
         # ------------------------------------------------------------------
         #  AUTH + INIT (using credentials)
         # ----------------------------------------------------------------
         
-        # credentials_path =  "credentials/earthengine_credentials.json"
-        # service_account = 'fanapanomaly@fanapanomaly.iam.gserviceaccount.com'
+        credentials_path =  "credentials/earthengine_credentials.json"
+        service_account = 'fanapanomaly@fanapanomaly.iam.gserviceaccount.com'
 
-        # ee.Reset()
-        # credentials = ee.ServiceAccountCredentials(service_account, credentials_path)
-        # ee.Initialize(credentials)
+        ee.Reset()
+        credentials = ee.ServiceAccountCredentials(service_account, credentials_path)
+        ee.Initialize(credentials)
         
 
         # ------------------------------------------------------------------
