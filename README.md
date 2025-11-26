@@ -94,7 +94,43 @@ Finally, configure your parameters inside **main.py**, then simply run:
 ```bash
 python main.py
 ```
+---
+
+## ⚠️ Common Errors
+
+### **1️⃣ Large Shapefile → 10 MB Payload Limit**
+
+If your input shapefile is large (typically **> 1–2 MB** or contains **many vertices**), the Earth Engine Python API may fail with:
+
+> **Request payload size exceeds the limit (10 MB)**
+
+This occurs because local shapefiles are converted into a very large JSON FeatureCollection when evaluated with `getInfo()`.
+**Fix:** Upload the shapefile as an **Earth Engine Asset**, then use its asset ID instead of the local file. This keeps geometry server-side and avoids the payload limit.
 
 ---
+
+### **2️⃣ “File exists” Error**
+
+If a previous download created a file (even partially), re-running the pipeline may fail with:
+
+> **File exists**
+
+**Fix:** Either delete old files, enable overwrite, or skip downloading files that already exist.
+
+---
+
+### **3️⃣ “User memory limit exceeded”**
+
+Very large polygons or regions may exceed Earth Engine’s internal memory limits when downloading high-resolution, multi-band imagery (e.g., the 168-band Presto stack).
+
+**Fix:**
+
+* Increase export scale (e.g., from 10 m → 20–30 m), **or**
+* Split very large polygons into smaller tiles before processing.
+
+---
+
+
+
 
 
