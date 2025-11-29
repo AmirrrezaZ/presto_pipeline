@@ -23,13 +23,6 @@ def run_inference_single(config: dict):
     device = torch.device("cuda" if (want_cuda and torch.cuda.is_available()) else "cpu")
 
     # --- Build inference DataLoader ---
-    loader, meta = inference_loader(
-        config["input_path"],
-        mask_path=config.get("mask_path"),
-        batch_size=config.get("batch_size", 2048),
-        device=device,
-    )
-    
     try:
         loader, meta = inference_loader(
             config["input_path"],
