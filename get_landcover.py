@@ -1,5 +1,5 @@
-from geo_utils import crop_rasters_by_polygons
-
+from pathlib import Path
+from geo_utils import crop_rasters_by_polygons  # already in your file
 
 def esri_landuse(configs: dict):
     # Only ESRI is supported for now
@@ -28,11 +28,26 @@ def esri_landuse(configs: dict):
     if not asset_path:
         raise ValueError("configs['asset_path'] (vector ROI) must be provided and non-empty.")
 
+    # ----------------------------------------------------
+    # Determine output directory for cropped ESRI masks
+    # ----------------------------------------------------
+    # If caller provided an explicit output dir, use that
+    lulc_out_cfg = configs.get("LULC_output_dir")
+
+    if lulc_out_cfg:
+        out_dir = Path(lulc_out_cfg)
+    else:
+        # Default: data/<roi_name>/LULC
+        roi_name = Path(asset_path).stem  # e.g. roi_0.shp -> "roi_0"
+        out_dir = Path("./data") / roi_name / "LULC"
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     # --- Everything OK → run cropping ---
     crop_rasters_by_polygons(
         tif_dir=esri_mask_path,
         shp_path=asset_path,
-        out_dir=f"./data/LULC/{year}",
+        out_dir=str(out_dir),
         iou_threshold=0.0001,
         id_field=None,
     )
