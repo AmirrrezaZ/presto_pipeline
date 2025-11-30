@@ -3,13 +3,71 @@ from pathlib import Path
 from geo_utils import _list_tifs
 
 
-from pathlib import Path
 from typing import List, Tuple
 import numpy as np
 import rasterio
 from rasterio.windows import Window
-from rasterio.warp import calculate_default_transform, reproject, Resampling
+from rasterio.warp import  reproject, Resampling
 from tqdm import tqdm
+import csv
+
+
+# ----------------------------------------------------
+# Helpers
+# ----------------------------------------------------
+def _pct_nonfinite_pixels(tif_path: str | Path) -> float:
+    """Return percentage of non-finite pixels (NaN/±inf) in a TIFF."""
+    tif_path = Path(tif_path)
+    with rasterio.open(tif_path) as src:
+        arr = src.read()  # (bands, H, W)
+    total = arr.size
+    if total == 0:
+        return 0.0
+    nonfinite = np.count_nonzero(~np.isfinite(arr))
+    return float(nonfinite) * 100.0 / float(total)
+
+
+def _make_synthetic_lulc_mask_like(
+    input_tif: str | Path,
+    out_tif: str | Path,
+    value: int = 4,
+):
+    """
+    Create a 1-band LULC mask with all pixels == value,
+    aligned to the georeferencing of input_tif.
+    """
+    input_tif = Path(input_tif)
+    out_tif = Path(out_tif)
+
+    with rasterio.open(input_tif) as src:
+        meta = src.meta.copy()
+        meta.update(count=1, dtype="int16")  # single-band integer mask
+        data = np.full((1, src.height, src.width), value, dtype="int16")
+
+        out_tif.parent.mkdir(parents=True, exist_ok=True)
+        with rasterio.open(out_tif, "w", **meta) as dst:
+            dst.write(data)
+
+
+def _append_metadata_row(csv_path: Path, row: dict, fieldnames: list[str]) -> None:
+    """Append one row to ROI-level metadata CSV, write header if file is new."""
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    exists = csv_path.exists()
+    with csv_path.open("a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        if not exists:
+            writer.writeheader()
+        writer.writerow(row)
+
+
+def natural_key(p: Path):
+    """Extract numeric index from filename like roi_123.shp."""
+    m = re.search(r"(\d+)", p.stem)
+    return int(m.group(1)) if m else 0
+
+
+
+
 
 def _get_band_descriptions(src) -> list[str]:
     """

@@ -1,6 +1,9 @@
 from pathlib import Path
-from geo_utils import crop_rasters_by_polygons  # already in your file
+from geo_utils import crop_rasters_by_polygons
 
+# ----------------------------------------------------
+# ESRI landuse 
+# ----------------------------------------------------
 def esri_landuse(configs: dict):
     # Only ESRI is supported for now
     if configs.get("landuse_method") != "ESRI":
@@ -28,10 +31,12 @@ def esri_landuse(configs: dict):
     if not asset_path:
         raise ValueError("configs['asset_path'] (vector ROI) must be provided and non-empty.")
 
+    # Optional IoU threshold override
+    iou_threshold = float(configs.get("LULC_iou_threshold", 1e-4))
+
     # ----------------------------------------------------
     # Determine output directory for cropped ESRI masks
     # ----------------------------------------------------
-    # If caller provided an explicit output dir, use that
     lulc_out_cfg = configs.get("LULC_output_dir")
 
     if lulc_out_cfg:
@@ -48,6 +53,8 @@ def esri_landuse(configs: dict):
         tif_dir=esri_mask_path,
         shp_path=asset_path,
         out_dir=str(out_dir),
-        iou_threshold=0.0001,
+        iou_threshold=iou_threshold,
         id_field=None,
     )
+
+
